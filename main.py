@@ -37,15 +37,16 @@ def get_changed_files() -> list[dict]:
     if not output.strip():
         return files
 
-    for line in output.strip().split("\n"):
+    for line in output.splitlines():
         if not line:
             continue
+        # Git porcelain format: XY filename (X=staged, Y=unstaged, positions 0-1)
         status = line[:2].strip()
         filename = line[3:]
 
-        # Get diff stats for this file
+        # Get diff stats for this file (for both unstaged and staged changes)
         additions, deletions = 0, 0
-        if status not in ["??", "A"]:
+        if status not in ["??"]:
             _, diff_stat, _ = run_git(["diff", "--numstat", "--", filename])
             if diff_stat.strip():
                 parts = diff_stat.strip().split("\t")
