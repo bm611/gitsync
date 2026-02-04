@@ -1,7 +1,8 @@
 import os
-import subprocess
 import sys
 
+from git import Repo
+from git.exc import InvalidGitRepositoryError
 from openai import OpenAI
 from rich.console import Console
 from rich.panel import Panel
@@ -12,73 +13,80 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console()
 
 
-def run_git(args: list[str]) -> tuple[int, str, str]:
-    """Run a git command and return (returncode, stdout, stderr)."""
-    result = subprocess.run(
-        ["git"] + args,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode, result.stdout, result.stderr
+def get_repo() -> Repo | None:
+    """Get the git repository for current directory."""
+    try:
+        return Repo(".", search_parent_directories=True)
+    except InvalidGitRepositoryError:
+        return None
 
 
-def is_git_repo() -> bool:
-    """Check if current directory is a git repository."""
-    code, _, _ = run_git(["rev-parse", "--git-dir"])
-    return code == 0
-
-
-def get_changed_files() -> list[dict]:
+def get_changed_files(repo: Repo) -> list[dict]:
     """Get list of changed files with their status and diff stats."""
     files = []
 
-    # Get status of all files
-    _, output, _ = run_git(["status", "--porcelain"])
-    if not output.strip():
-        return files
-
-    for line in output.splitlines():
-        if not line:
-            continue
-        # Git porcelain format: XY filename (X=staged, Y=unstaged, positions 0-1)
-        status = line[:2].strip()
-        filename = line[3:]
-
-        # Get diff stats for this file (for both unstaged and staged changes)
-        additions, deletions = 0, 0
-        if status not in ["??"]:
-            _, diff_stat, _ = run_git(["diff", "--numstat", "--", filename])
-            if diff_stat.strip():
-                parts = diff_stat.strip().split("\t")
-                if len(parts) >= 2:
-                    additions = int(parts[0]) if parts[0] != "-" else 0
-                    deletions = int(parts[1]) if parts[1] != "-" else 0
-
-        # Also check staged changes
-        _, staged_stat, _ = run_git(["diff", "--cached", "--numstat", "--", filename])
-        if staged_stat.strip():
-            parts = staged_stat.strip().split("\t")
-            if len(parts) >= 2:
-                additions += int(parts[0]) if parts[0] != "-" else 0
-                deletions += int(parts[1]) if parts[1] != "-" else 0
-
-        status_map = {
-            "M": "Modified",
-            "A": "Added",
-            "D": "Deleted",
-            "R": "Renamed",
-            "C": "Copied",
-            "??": "Untracked",
-            "MM": "Modified",
-            "AM": "Added/Modified",
-        }
-
+    # Get unstaged changes (working tree vs index)
+    for diff in repo.index.diff(None):
+        stats = diff.a_blob.data_stream.read().decode().count('\n') if diff.a_blob else 0
+        b_stats = diff.b_blob.data_stream.read().decode().count('\n') if diff.b_blob else 0
         files.append({
-            "filename": filename,
-            "status": status_map.get(status, status),
-            "additions": additions,
-            "deletions": deletions,
+            "filename": diff.a_path or diff.b_path,
+            "status": "Modified" if diff.change_type == "M" else diff.change_type,
+            "additions": 0,
+            "deletions": 0,
+            "change_type": "unstaged",
         })
+
+    # Get staged changes (index vs HEAD)
+    try:
+        staged_diffs = repo.index.diff("HEAD")
+    except Exception:
+        staged_diffs = repo.index.diff(repo.head.commit) if repo.head.is_valid() else []
+
+    for diff in staged_diffs:
+        existing = next((f for f in files if f["filename"] == (diff.a_path or diff.b_path)), None)
+        if existing:
+            existing["change_type"] = "both"
+        else:
+            status_map = {"M": "Modified", "A": "Added", "D": "Deleted", "R": "Renamed"}
+            files.append({
+                "filename": diff.a_path or diff.b_path,
+                "status": status_map.get(diff.change_type, diff.change_type),
+                "additions": 0,
+                "deletions": 0,
+                "change_type": "staged",
+            })
+
+    # Get untracked files
+    for filepath in repo.untracked_files:
+        files.append({
+            "filename": filepath,
+            "status": "Untracked",
+            "additions": 0,
+            "deletions": 0,
+            "change_type": "untracked",
+        })
+
+    # Calculate diff stats using git diff
+    for f in files:
+        if f["status"] == "Untracked":
+            continue
+        try:
+            diff_output = repo.git.diff("--numstat", "--", f["filename"])
+            if diff_output:
+                parts = diff_output.strip().split("\t")
+                if len(parts) >= 2:
+                    f["additions"] = int(parts[0]) if parts[0] != "-" else 0
+                    f["deletions"] = int(parts[1]) if parts[1] != "-" else 0
+
+            staged_output = repo.git.diff("--cached", "--numstat", "--", f["filename"])
+            if staged_output:
+                parts = staged_output.strip().split("\t")
+                if len(parts) >= 2:
+                    f["additions"] += int(parts[0]) if parts[0] != "-" else 0
+                    f["deletions"] += int(parts[1]) if parts[1] != "-" else 0
+        except Exception:
+            pass
 
     return files
 
@@ -102,24 +110,26 @@ def display_changes(files: list[dict]) -> None:
     console.print(table)
 
 
-def get_full_diff() -> str:
+def get_full_diff(repo: Repo) -> str:
     """Get the full diff for commit message generation."""
-    # Get staged diff
-    _, staged, _ = run_git(["diff", "--cached"])
-    # Get unstaged diff
-    _, unstaged, _ = run_git(["diff"])
-    # Get list of untracked files
-    _, untracked, _ = run_git(["ls-files", "--others", "--exclude-standard"])
-
     diff_content = ""
+
+    # Staged diff
+    staged = repo.git.diff("--cached")
     if staged:
         diff_content += f"Staged changes:\n{staged}\n"
+
+    # Unstaged diff
+    unstaged = repo.git.diff()
     if unstaged:
         diff_content += f"Unstaged changes:\n{unstaged}\n"
-    if untracked:
-        diff_content += f"New untracked files:\n{untracked}\n"
 
-    return diff_content[:8000]  # Limit to avoid token issues
+    # Untracked files
+    untracked = repo.untracked_files
+    if untracked:
+        diff_content += f"New untracked files:\n{chr(10).join(untracked)}\n"
+
+    return diff_content[:8000]
 
 
 def generate_commit_message(diff: str) -> str:
@@ -151,21 +161,15 @@ Changes:
     return response.choices[0].message.content.strip()
 
 
-def commit_changes(message: str) -> bool:
+def commit_changes(repo: Repo, message: str) -> bool:
     """Stage all changes and commit."""
-    # Stage all changes
-    code, _, err = run_git(["add", "-A"])
-    if code != 0:
-        console.print(f"[red]Error staging changes: {err}[/red]")
+    try:
+        repo.git.add("-A")
+        repo.index.commit(message)
+        return True
+    except Exception as e:
+        console.print(f"[red]Error committing: {e}[/red]")
         return False
-
-    # Commit
-    code, _, err = run_git(["commit", "-m", message])
-    if code != 0:
-        console.print(f"[red]Error committing: {err}[/red]")
-        return False
-
-    return True
 
 
 def main():
@@ -178,8 +182,9 @@ def main():
         console=console,
     ) as progress:
         task = progress.add_task("Checking git repository...", total=None)
+        repo = get_repo()
 
-        if not is_git_repo():
+        if not repo:
             progress.stop()
             console.print("[red]Error: Not a git repository[/red]")
             sys.exit(1)
@@ -194,7 +199,7 @@ def main():
         console=console,
     ) as progress:
         task = progress.add_task("Checking for changes...", total=None)
-        files = get_changed_files()
+        files = get_changed_files(repo)
         progress.update(task, description=f"[green]Found {len(files)} changed file(s)[/green]")
 
     if not files:
@@ -212,7 +217,7 @@ def main():
         console=console,
     ) as progress:
         task = progress.add_task("Generating commit message...", total=None)
-        diff = get_full_diff()
+        diff = get_full_diff(repo)
         message = generate_commit_message(diff)
         progress.update(task, description="[green]Commit message generated[/green]")
 
@@ -227,7 +232,7 @@ def main():
         console=console,
     ) as progress:
         task = progress.add_task("Committing changes...", total=None)
-        success = commit_changes(message)
+        success = commit_changes(repo, message)
 
         if success:
             progress.update(task, description="[green]Changes committed successfully![/green]")
