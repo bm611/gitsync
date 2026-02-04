@@ -235,7 +235,7 @@ def main():
             sys.exit(1)
 
     console.print()
-    console.print("[bold green]Done![/bold green]")
+    console.print("[bold purple]Done![/bold purple]")
 
 
 if __name__ == "__main__":
