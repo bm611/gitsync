@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 from git import Repo
@@ -7,9 +8,46 @@ from openai import OpenAI
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 console = Console()
+
+
+def has_remote(repo: Repo) -> bool:
+    """Check if repository has a remote configured."""
+    return len(repo.remotes) > 0
+
+
+def check_gh_cli() -> bool:
+    """Check if gh CLI is installed and authenticated."""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def create_github_repo(repo_name: str, private: bool = True) -> bool:
+    """Create a GitHub repository using gh CLI and add as remote."""
+    try:
+        visibility = "--private" if private else "--public"
+        result = subprocess.run(
+            ["gh", "repo", "create", repo_name, visibility, "--source=.", "--remote=origin"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            console.print(f"[red]Error creating repo: {result.stderr}[/red]")
+            return False
+        return True
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return False
 
 
 def get_repo() -> Repo | None:
@@ -207,6 +245,36 @@ def main():
             sys.exit(1)
 
         progress.update(task, description="[green]Git repository found[/green]")
+
+    # Check for remote
+    console.print()
+    if not has_remote(repo):
+        console.print("[yellow]No remote repository configured.[/yellow]")
+        
+        if not check_gh_cli():
+            console.print("[red]GitHub CLI (gh) is not installed or not authenticated.[/red]")
+            console.print("Install it from https://cli.github.com and run 'gh auth login'")
+            sys.exit(1)
+        
+        if Confirm.ask("Would you like to create a GitHub repository?"):
+            default_name = os.path.basename(os.getcwd())
+            repo_name = Prompt.ask("Repository name", default=default_name)
+            private = Confirm.ask("Make repository private?", default=True)
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Creating GitHub repository...", total=None)
+                
+                if create_github_repo(repo_name, private):
+                    progress.update(task, description=f"[green]Repository '{repo_name}' created![/green]")
+                else:
+                    progress.update(task, description="[red]Failed to create repository[/red]")
+                    sys.exit(1)
+        else:
+            console.print("[yellow]Skipping remote setup. Commit will be local only.[/yellow]")
 
     # Get changed files
     console.print()
