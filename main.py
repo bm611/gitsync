@@ -223,6 +223,23 @@ def commit_changes(repo: Repo, message: str) -> bool:
         return False
 
 
+def push_changes(repo: Repo) -> bool:
+    """Push changes to remote."""
+    try:
+        if not has_remote(repo):
+            return False
+        
+        origin = repo.remotes.origin
+        # Get current branch name
+        branch = repo.active_branch.name
+        # Push with upstream tracking
+        origin.push(refspec=f"{branch}:{branch}", set_upstream=True)
+        return True
+    except Exception as e:
+        console.print(f"[red]Error pushing: {e}[/red]")
+        return False
+
+
 def main():
     console.print(
         Panel.fit(
@@ -330,6 +347,24 @@ def main():
         else:
             progress.update(task, description="[red]Commit failed[/red]")
             sys.exit(1)
+
+    # Push to remote if configured
+    if has_remote(repo):
+        console.print()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Pushing to remote...", total=None)
+            
+            if push_changes(repo):
+                progress.update(
+                    task, description="[green]Pushed to remote successfully![/green]"
+                )
+            else:
+                progress.update(task, description="[red]Push failed[/red]")
+                sys.exit(1)
 
     console.print()
     console.print("[bold blue]Done![/bold blue]")
