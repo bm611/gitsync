@@ -64,12 +64,6 @@ def get_changed_files(repo: Repo) -> list[dict]:
 
     # Get unstaged changes (working tree vs index)
     for diff in repo.index.diff(None):
-        stats = (
-            diff.a_blob.data_stream.read().decode().count("\n") if diff.a_blob else 0
-        )
-        b_stats = (
-            diff.b_blob.data_stream.read().decode().count("\n") if diff.b_blob else 0
-        )
         files.append(
             {
                 "filename": diff.a_path or diff.b_path,
