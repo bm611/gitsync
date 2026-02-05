@@ -6,9 +6,8 @@ from git.exc import InvalidGitRepositoryError
 from openai import OpenAI
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-
+from rich.table import Table
 
 console = Console()
 
@@ -27,15 +26,21 @@ def get_changed_files(repo: Repo) -> list[dict]:
 
     # Get unstaged changes (working tree vs index)
     for diff in repo.index.diff(None):
-        stats = diff.a_blob.data_stream.read().decode().count('\n') if diff.a_blob else 0
-        b_stats = diff.b_blob.data_stream.read().decode().count('\n') if diff.b_blob else 0
-        files.append({
-            "filename": diff.a_path or diff.b_path,
-            "status": "Modified" if diff.change_type == "M" else diff.change_type,
-            "additions": 0,
-            "deletions": 0,
-            "change_type": "unstaged",
-        })
+        stats = (
+            diff.a_blob.data_stream.read().decode().count("\n") if diff.a_blob else 0
+        )
+        b_stats = (
+            diff.b_blob.data_stream.read().decode().count("\n") if diff.b_blob else 0
+        )
+        files.append(
+            {
+                "filename": diff.a_path or diff.b_path,
+                "status": "Modified" if diff.change_type == "M" else diff.change_type,
+                "additions": 0,
+                "deletions": 0,
+                "change_type": "unstaged",
+            }
+        )
 
     # Get staged changes (index vs HEAD)
     try:
@@ -44,28 +49,34 @@ def get_changed_files(repo: Repo) -> list[dict]:
         staged_diffs = repo.index.diff(repo.head.commit) if repo.head.is_valid() else []
 
     for diff in staged_diffs:
-        existing = next((f for f in files if f["filename"] == (diff.a_path or diff.b_path)), None)
+        existing = next(
+            (f for f in files if f["filename"] == (diff.a_path or diff.b_path)), None
+        )
         if existing:
             existing["change_type"] = "both"
         else:
             status_map = {"M": "Modified", "A": "Added", "D": "Deleted", "R": "Renamed"}
-            files.append({
-                "filename": diff.a_path or diff.b_path,
-                "status": status_map.get(diff.change_type, diff.change_type),
-                "additions": 0,
-                "deletions": 0,
-                "change_type": "staged",
-            })
+            files.append(
+                {
+                    "filename": diff.a_path or diff.b_path,
+                    "status": status_map.get(diff.change_type, diff.change_type),
+                    "additions": 0,
+                    "deletions": 0,
+                    "change_type": "staged",
+                }
+            )
 
     # Get untracked files
     for filepath in repo.untracked_files:
-        files.append({
-            "filename": filepath,
-            "status": "Untracked",
-            "additions": 0,
-            "deletions": 0,
-            "change_type": "untracked",
-        })
+        files.append(
+            {
+                "filename": filepath,
+                "status": "Untracked",
+                "additions": 0,
+                "deletions": 0,
+                "change_type": "untracked",
+            }
+        )
 
     # Calculate diff stats using git diff
     for f in files:
@@ -136,7 +147,9 @@ def generate_commit_message(diff: str) -> str:
     """Generate commit message using OpenRouter API."""
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        console.print("[red]Error: OPENROUTER_API_KEY environment variable not set[/red]")
+        console.print(
+            "[red]Error: OPENROUTER_API_KEY environment variable not set[/red]"
+        )
         sys.exit(1)
 
     client = OpenAI(
@@ -144,7 +157,7 @@ def generate_commit_message(diff: str) -> str:
         api_key=api_key,
     )
 
-    prompt = f"""Generate a concise git commit message for the following changes. 
+    prompt = f"""Generate a concise git commit message for the following changes.
 Follow conventional commit format (e.g., feat:, fix:, docs:, refactor:, etc.).
 Keep the first line under 72 characters. Add a brief body if needed.
 Only output the commit message, nothing else.
@@ -173,7 +186,11 @@ def commit_changes(repo: Repo, message: str) -> bool:
 
 
 def main():
-    console.print(Panel.fit("[bold blue]GitSync[/bold blue] - Auto Git Commit", border_style="blue"))
+    console.print(
+        Panel.fit(
+            "[bold blue]GitSync[/bold blue] - Auto Git Commit", border_style="blue"
+        )
+    )
 
     # Check if git repo
     with Progress(
@@ -200,7 +217,9 @@ def main():
     ) as progress:
         task = progress.add_task("Checking for changes...", total=None)
         files = get_changed_files(repo)
-        progress.update(task, description=f"[green]Found {len(files)} changed file(s)[/green]")
+        progress.update(
+            task, description=f"[green]Found {len(files)} changed file(s)[/green]"
+        )
 
     if not files:
         console.print("[yellow]No changes to commit[/yellow]")
@@ -222,7 +241,9 @@ def main():
         progress.update(task, description="[green]Commit message generated[/green]")
 
     console.print()
-    console.print(Panel(message, title="Generated Commit Message", border_style="green"))
+    console.print(
+        Panel(message, title="Generated Commit Message", border_style="green")
+    )
     console.print()
 
     # Commit changes
@@ -235,7 +256,9 @@ def main():
         success = commit_changes(repo, message)
 
         if success:
-            progress.update(task, description="[green]Changes committed successfully![/green]")
+            progress.update(
+                task, description="[green]Changes committed successfully![/green]"
+            )
         else:
             progress.update(task, description="[red]Commit failed[/red]")
             sys.exit(1)
