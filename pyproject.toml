@@ -1,7 +1,7 @@
 [project]
 name = "gitsync"
 version = "0.1.0"
-description = "Add your description here"
+description = "Auto git commit with AI-generated messages"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -9,3 +9,6 @@ dependencies = [
     "openai>=2.16.0",
     "rich>=14.3.2",
 ]
+
+[project.scripts]
+gitsync = "main:main"
