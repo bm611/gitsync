@@ -152,22 +152,11 @@ def get_changed_files(repo: Repo) -> list[dict]:
 
 
 def display_changes(files: list[dict]) -> None:
-    """Display changed files in a rich table."""
-    table = Table(title="Changed Files")
-    table.add_column("File", style="cyan")
-    table.add_column("Status", style="yellow")
-    table.add_column("+", style="green", justify="right")
-    table.add_column("-", style="red", justify="right")
-
+    """Display changed files with +/- count."""
     for f in files:
-        table.add_row(
-            f["filename"],
-            f["status"],
-            f"+{f['additions']}" if f["additions"] else "",
-            f"-{f['deletions']}" if f["deletions"] else "",
-        )
-
-    console.print(table)
+        additions = f"[green]+{f['additions']}[/green]" if f["additions"] else ""
+        deletions = f"[red]-{f['deletions']}[/red]" if f["deletions"] else ""
+        console.print(f"{f['filename']:<40} {additions} {deletions}")
 
 
 def get_full_diff(repo: Repo) -> str:
