@@ -154,9 +154,12 @@ def get_changed_files(repo: Repo) -> list[dict]:
 def display_changes(files: list[dict]) -> None:
     """Display changed files with +/- count."""
     for f in files:
-        additions = f"[green]+{f['additions']}[/green]" if f["additions"] else ""
-        deletions = f"[red]-{f['deletions']}[/red]" if f["deletions"] else ""
-        console.print(f"{f['filename']:<40} {additions} {deletions}")
+        parts = [f"[cyan]{f['filename']}[/cyan]"]
+        if f["additions"]:
+            parts.append(f"[green]+{f['additions']}[/green]")
+        if f["deletions"]:
+            parts.append(f"[red]-{f['deletions']}[/red]")
+        console.print(" ".join(parts))
 
 
 def get_full_diff(repo: Repo) -> str:
