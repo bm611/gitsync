@@ -75,6 +75,19 @@ def get_repo() -> Repo | None:
         return None
 
 
+def init_git_repo() -> Repo:
+    """Initialize a new git repository in the current directory."""
+    try:
+        subprocess.run(["git", "init"], capture_output=True, check=True)
+        return Repo(".")
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error initializing git repository: {e.stderr.decode()}[/red]")
+        sys.exit(1)
+    except FileNotFoundError:
+        console.print("[red]Error: git command not found. Please install git.[/red]")
+        sys.exit(1)
+
+
 def get_changed_files(repo: Repo) -> list[dict]:
     """Get list of changed files with their status and diff stats."""
     files = []
@@ -261,8 +274,14 @@ def main():
 
         if not repo:
             progress.stop()
-            console.print("[red]Error: Not a git repository[/red]")
-            sys.exit(1)
+            console.print("[yellow]No git repository found in current directory.[/yellow]")
+
+            if Confirm.ask("Would you like to initialize a git repository here?"):
+                repo = init_git_repo()
+                console.print("[green]Git repository initialized successfully![/green]")
+            else:
+                console.print("[red]Cannot continue without a git repository.[/red]")
+                sys.exit(1)
 
         progress.update(task, description="[green]Git repository found[/green]")
 
