@@ -78,13 +78,9 @@ def get_repo() -> Repo | None:
 def init_git_repo() -> Repo:
     """Initialize a new git repository in the current directory."""
     try:
-        subprocess.run(["git", "init"], capture_output=True, check=True)
-        return Repo(".")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error initializing git repository: {e.stderr.decode()}[/red]")
-        sys.exit(1)
-    except FileNotFoundError:
-        console.print("[red]Error: git command not found. Please install git.[/red]")
+        return Repo.init(".")
+    except Exception as e:
+        console.print(f"[red]Error initializing git repository: {e}[/red]")
         sys.exit(1)
 
 
